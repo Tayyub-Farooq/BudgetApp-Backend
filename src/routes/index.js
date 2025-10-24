@@ -1,5 +1,5 @@
 import { Router } from "express";
-import authRouter from "./auth.routes.js";         // <- ./ not ../
+import authRouter from "./auth.routes.js";         
 import expenseRouter from "./expense.routes.js";
 
 const router = Router();
