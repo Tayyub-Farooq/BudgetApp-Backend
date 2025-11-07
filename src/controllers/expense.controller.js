@@ -1,5 +1,8 @@
 import Expense from "../models/Expense.js";
 
+/**
+ * POST /api/expenses
+ */
 export const createExpense = async (req, res, next) => {
   try {
     const { category, amount, occurredOn, note } = req.body || {};
@@ -13,7 +16,7 @@ export const createExpense = async (req, res, next) => {
       category,
       amount,
       occurredOn: new Date(occurredOn),
-      note
+      note,
     });
     res.status(201).json({ expense });
   } catch (e) {
@@ -21,6 +24,9 @@ export const createExpense = async (req, res, next) => {
   }
 };
 
+/**
+ * GET /api/expenses?month=YYYY-MM
+ */
 export const listExpenses = async (req, res, next) => {
   try {
     const { month } = req.query;
@@ -40,6 +46,10 @@ export const listExpenses = async (req, res, next) => {
   }
 };
 
+/**
+ * GET /api/expenses/summary?month=YYYY-MM
+ * Category breakdown for a month
+ */
 export const summaryByCategory = async (req, res, next) => {
   try {
     const { month } = req.query;
@@ -57,7 +67,7 @@ export const summaryByCategory = async (req, res, next) => {
       { $match: match },
       { $group: { _id: "$category", total: { $sum: "$amount" } } },
       { $project: { category: "$_id", total: 1, _id: 0 } },
-      { $sort: { category: 1 } }
+      { $sort: { category: 1 } },
     ]);
 
     res.json({ summary });
@@ -66,12 +76,55 @@ export const summaryByCategory = async (req, res, next) => {
   }
 };
 
+/**
+ * GET /api/expenses/summary/overview?month=YYYY-MM
+ * Single-number total for the month
+ */
+export const summaryOverview = async (req, res, next) => {
+  try {
+    // month optional; if omitted, use current month
+    let { month } = req.query;
+    if (!month) {
+      const now = new Date();
+      month = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+    }
+
+    const [y, m] = month.split("-").map(Number);
+    if (!y || !m) {
+      const err = new Error("month must be YYYY-MM");
+      err.status = 400;
+      throw err;
+    }
+
+    const start = new Date(Date.UTC(y, m - 1, 1));
+    const end = new Date(Date.UTC(y, m, 1));
+
+    const match = {
+      userId: Expense.schema.path("userId").cast(req.user.id),
+      occurredOn: { $gte: start, $lt: end },
+    };
+
+    const agg = await Expense.aggregate([
+      { $match: match },
+      { $group: { _id: null, total: { $sum: "$amount" } } },
+    ]);
+
+    res.json({ total: agg[0]?.total || 0, month });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * PATCH /api/expenses/:id
+ */
 export const updateExpense = async (req, res, next) => {
   try {
     const _id = req.params.id;
     const update = {};
     for (const k of ["category", "amount", "occurredOn", "note"]) {
-      if (k in req.body) update[k] = k === "occurredOn" ? new Date(req.body[k]) : req.body[k];
+      if (k in req.body)
+        update[k] = k === "occurredOn" ? new Date(req.body[k]) : req.body[k];
     }
 
     const expense = await Expense.findOneAndUpdate(
@@ -90,9 +143,15 @@ export const updateExpense = async (req, res, next) => {
   }
 };
 
+/**
+ * DELETE /api/expenses/:id
+ */
 export const deleteExpense = async (req, res, next) => {
   try {
-    const result = await Expense.deleteOne({ _id: req.params.id, userId: req.user.id });
+    const result = await Expense.deleteOne({
+      _id: req.params.id,
+      userId: req.user.id,
+    });
     if (result.deletedCount === 0) {
       const err = new Error("Not found");
       err.status = 404;
