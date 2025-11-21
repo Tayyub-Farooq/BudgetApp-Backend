@@ -1,4 +1,5 @@
 import Expense from "../models/Expense.js";
+import mongoose from "mongoose";
 
 /**
  * POST /api/expenses
@@ -53,7 +54,8 @@ export const listExpenses = async (req, res, next) => {
 export const summaryByCategory = async (req, res, next) => {
   try {
     const { month } = req.query;
-    const userId = req.user.id;
+    //const userId = req.user.id;
+    const userId = new mongoose.Types.ObjectId(req.user.id); //force ObjectId
 
     const match = { userId: Expense.schema.path("userId").cast(userId) };
     if (month) {
@@ -98,8 +100,9 @@ export const summaryOverview = async (req, res, next) => {
     const start = new Date(Date.UTC(y, m - 1, 1));
     const end = new Date(Date.UTC(y, m, 1));
 
+    // explicitly convert the String ID to an ObjectId for aggregation to work
     const match = {
-      userId: req.user.id,
+      userId: new mongoose.Types.ObjectId(req.user.id), 
       occurredOn: { $gte: start, $lt: end },
     };
 
