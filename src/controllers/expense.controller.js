@@ -1,4 +1,5 @@
 import Expense from "../models/Expense.js";
+import mongoose from "mongoose";
 
 /**
  * POST /api/expenses
@@ -53,7 +54,8 @@ export const listExpenses = async (req, res, next) => {
 export const summaryByCategory = async (req, res, next) => {
   try {
     const { month } = req.query;
-    const userId = req.user.id;
+    //const userId = req.user.id;
+    const userId = new mongoose.Types.ObjectId(req.user.id); //force ObjectId
 
     const match = { userId: Expense.schema.path("userId").cast(userId) };
     if (month) {
@@ -79,37 +81,65 @@ export const summaryByCategory = async (req, res, next) => {
 /**
  * GET /api/expenses/summary/overview?month=YYYY-MM
  * Single-number total for the month
+ * Budget information
  */
 export const summaryOverview = async (req, res, next) => {
   try {
+    // fetch User's Budget
+    const { default: User } = await import("../models/User.js");
+    const userDoc = await User.findById(req.user.id).select("monthlyBudget");
+    const budgetLimit = userDoc?.monthlyBudget || 0;
+
     // month optional; if omitted, use current month
     let { month } = req.query;
     if (!month) {
       const now = new Date();
       month = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
     }
-
     const [y, m] = month.split("-").map(Number);
-    if (!y || !m) {
-      const err = new Error("month must be YYYY-MM");
-      err.status = 400;
-      throw err;
-    }
-
     const start = new Date(Date.UTC(y, m - 1, 1));
     const end = new Date(Date.UTC(y, m, 1));
 
+    // explicitly convert the String ID to an ObjectId for aggregation to work
     const match = {
-      userId: Expense.schema.path("userId").cast(req.user.id),
+      userId: new mongoose.Types.ObjectId(req.user.id), 
       occurredOn: { $gte: start, $lt: end },
     };
 
+    const { default: Expense } = await import("../models/Expense.js");
     const agg = await Expense.aggregate([
       { $match: match },
       { $group: { _id: null, total: { $sum: "$amount" } } },
     ]);
 
-    res.json({ total: agg[0]?.total || 0, month });
+    const totalSpent = agg[0]?.total || 0;
+
+    // calculate remaining budget and alert status
+    let remaining = null;
+    let pct = 0;
+    let alertStatus = null; // null | "WARNING" | "OVERLIMIT"
+
+    if (budgetLimit > 0) {
+      remaining = budgetLimit - totalSpent;
+      pct = (totalSpent / budgetLimit) * 100;
+
+      if (totalSpent > budgetLimit) {
+        alertStatus = "OVERLIMIT";
+      } else if (pct >= 80) { 
+        // 80% threshold for "Close to budget"
+        alertStatus = "WARNING";
+      }
+    }
+
+    res.json({
+      month,
+      total: totalSpent,
+      budget: budgetLimit,
+      remaining,      // Positive = left, Negative = over
+      percentage: Math.round(pct), 
+      alert: alertStatus
+    });
+
   } catch (e) {
     next(e);
   }
