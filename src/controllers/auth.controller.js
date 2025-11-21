@@ -7,6 +7,30 @@ const issueToken = (user) =>
     expiresIn: process.env.JWT_EXPIRES_IN || "7d"
   });
 
+export const updateMe = async (req, res, next) => {
+  try {
+    const { monthlyBudget } = req.body;
+    
+    //only allow updating specific fields
+    const update = {};
+    if (monthlyBudget !== undefined) {
+      update.monthlyBudget = monthlyBudget;
+    }
+
+    const { default: User } = await import("../models/User.js");
+    
+    const user = await User.findByIdAndUpdate(
+      req.user.id,
+      { $set: update },
+      { new: true, runValidators: true } // Returns the updated doc
+    ).select("-passwordHash"); // Don't return the password
+
+    res.json({ user });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const register = async (req, res, next) => {
   try {
     const { email, password } = req.body || {};
